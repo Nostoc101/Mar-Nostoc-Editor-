@@ -24,10 +24,27 @@ import {
   Volume2,
   VolumeX,
   Copy,
-  Zap,
   Wand2,
   CheckCircle2,
+  User as UserIcon,
+  Crown,
+  Lock,
+  LogOut,
+  X,
+  CreditCard,
+  ShieldCheck,
+  Star,
 } from "lucide-react";
+
+// --- INTERFACES & SAAS TYPES ---
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  isPro: boolean;
+  tier: "Free" | "Pro Lifetime" | "Pro Monthly";
+  joinedDate: string;
+}
 
 export interface MediaAsset {
   id: string;
@@ -82,6 +99,80 @@ export type FilterPreset = "none" | "cyberpunk" | "vintage" | "noir" | "golden" 
 export type AspectRatio = "16:9" | "9:16" | "1:1" | "4:5";
 
 export default function MarNostocEditor() {
+  // --- USER AUTH & SAAS STATE ---
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState<boolean>(false);
+  const [authEmail, setAuthEmail] = useState<string>("");
+  const [authPassword, setAuthPassword] = useState<string>("");
+  const [authMode, setAuthMode] = useState<"login" | "signup">("signup");
+  const [isProcessingPayment, setIsProcessingPayment] = useState<boolean>(false);
+
+  // Load existing session from storage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("mar_nostoc_session");
+      if (stored) {
+        try {
+          setCurrentUser(JSON.parse(stored));
+        } catch {
+          localStorage.removeItem("mar_nostoc_session");
+        }
+      }
+    }
+  }, []);
+
+  const handleSaveUserSession = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("mar_nostoc_session", JSON.stringify(user));
+    }
+  };
+
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim()) return;
+
+    const newUser: UserProfile = {
+      id: `usr_${Date.now()}`,
+      email: authEmail.trim(),
+      name: authEmail.split("@")[0],
+      isPro: false,
+      tier: "Free",
+      joinedDate: new Date().toLocaleDateString(),
+    };
+
+    handleSaveUserSession(newUser);
+    setShowAuthModal(false);
+    setAuthEmail("");
+    setAuthPassword("");
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("mar_nostoc_session");
+    }
+  };
+
+  const handleUpgradeToPro = (planName: "Pro Monthly" | "Pro Lifetime") => {
+    setIsProcessingPayment(true);
+    setTimeout(() => {
+      const upgraded: UserProfile = {
+        id: currentUser ? currentUser.id : `usr_${Date.now()}`,
+        email: currentUser ? currentUser.email : "pro_user@marnostoc.com",
+        name: currentUser ? currentUser.name : "Pro Creator",
+        isPro: true,
+        tier: planName,
+        joinedDate: currentUser ? currentUser.joinedDate : new Date().toLocaleDateString(),
+      };
+      handleSaveUserSession(upgraded);
+      setIsProcessingPayment(false);
+      setShowUpgradeModal(false);
+    }, 1200);
+  };
+
+  // --- EDITOR WORKSPACE STATE ---
   const [activeTab, setActiveTab] = useState<
     "media" | "audio" | "text" | "stickers" | "effects" | "transitions" | "speed" | "adjust" | "crop"
   >("media");
@@ -144,6 +235,7 @@ export default function MarNostocEditor() {
   const audioFileInputRef = useRef<HTMLInputElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  // Web Audio Context initialization
   const getAudioContext = () => {
     if (typeof window === "undefined") return null;
     if (!audioContextRef.current) {
@@ -228,7 +320,7 @@ export default function MarNostocEditor() {
 
       ctx.fillStyle = "#ffffff";
       ctx.font = "24px sans-serif";
-      ctx.fillText("Production Client-Side Studio • Ready to Edit", 640, 400);
+      ctx.fillText("Pro Multimedia Suite • Import Media to Begin", 640, 400);
 
       const stream = canvas.captureStream(30);
       const mr = new MediaRecorder(stream, { mimeType: "video/webm" });
@@ -478,7 +570,24 @@ export default function MarNostocEditor() {
     draggingItemId.current = null;
   };
 
+  // Paywalled Feature Checker
+  const checkProAccess = (action: () => void) => {
+    if (currentUser?.isPro) {
+      action();
+    } else {
+      setShowUpgradeModal(true);
+    }
+  };
+
   const handleSetSpeed = (newSpeed: number) => {
+    if (newSpeed >= 4.0 || newSpeed <= 0.25) {
+      checkProAccess(() => applySpeed(newSpeed));
+    } else {
+      applySpeed(newSpeed);
+    }
+  };
+
+  const applySpeed = (newSpeed: number) => {
     if (!videoRef.current) return;
     videoRef.current.playbackRate = newSpeed;
     setSegments((prev) =>
@@ -508,6 +617,7 @@ export default function MarNostocEditor() {
     return 1 + progress * (zoomScale - 1);
   };
 
+  // --- 1080P EXPORT ENGINE WITH HARDCODED WATERMARK & PRO REMOVAL ---
   const handleExportVideo = async () => {
     if (!videoRef.current || isExporting) return;
     setIsExporting(true);
@@ -561,7 +671,9 @@ export default function MarNostocEditor() {
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `Mar_Nostoc_Export_${Date.now()}.${mimeType.includes("mp4") ? "mp4" : "webm"}`;
+      a.download = `Mar_Nostoc_${currentUser?.isPro ? "PRO" : "Free"}_${Date.now()}.${
+        mimeType.includes("mp4") ? "mp4" : "webm"
+      }`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -593,10 +705,11 @@ export default function MarNostocEditor() {
         video.addEventListener("seeked", onSeek);
       });
 
+      // 1. Draw Background & Filtered Video
       ctx.save();
       ctx.filter = getFilterCSS();
 
-      if (keyframeZoom) {
+      if (keyframeZoom && currentUser?.isPro) {
         const scale = 1 + (t / duration) * (zoomScale - 1);
         ctx.translate(outW / 2, outH / 2);
         ctx.scale(scale, scale);
@@ -611,6 +724,7 @@ export default function MarNostocEditor() {
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
       ctx.restore();
 
+      // 2. Render Transitions
       const currentSeg = segments.find((s) => t >= s.start && t <= s.end);
       if (currentSeg && currentSeg.transition !== "none") {
         const timeFromCut = t - currentSeg.start;
@@ -629,6 +743,7 @@ export default function MarNostocEditor() {
         }
       }
 
+      // 3. Render Stickers
       stickers.forEach((stk) => {
         if (t >= stk.startTime && t <= stk.endTime) {
           ctx.save();
@@ -643,6 +758,7 @@ export default function MarNostocEditor() {
         }
       });
 
+      // 4. Render Text Tracks
       textList.forEach((item) => {
         if (t >= item.startTime && t <= item.endTime) {
           ctx.save();
@@ -670,7 +786,6 @@ export default function MarNostocEditor() {
           const rw = metrics.width + pad * 2;
           const rh = scaleFont + pad;
 
-          // Safe rounded rect fallback for TypeScript and older engines
           if (typeof (ctx as any).roundRect === "function") {
             (ctx as any).roundRect(rx, ry, rw, rh, 8);
           } else {
@@ -683,6 +798,42 @@ export default function MarNostocEditor() {
           ctx.restore();
         }
       });
+
+      // 5. HARDCODED WATERMARK (BAKED INTO EXPORT IF NOT PRO)
+      if (!currentUser?.isPro) {
+        ctx.save();
+        const watermarkTitle = "MAR NOSTOC EDITOR";
+        const watermarkSub = "Created with Free Tier • Upgrade to Remove";
+        const wmFontSize = Math.floor(outH * 0.024);
+        const pad = Math.floor(outH * 0.016);
+
+        ctx.font = `bold ${wmFontSize}px sans-serif`;
+        const metrics = ctx.measureText(watermarkTitle);
+        const boxW = metrics.width + pad * 2.8;
+        const boxH = wmFontSize * 2.4;
+        const boxX = outW - boxW - Math.floor(outW * 0.03);
+        const boxY = outH - boxH - Math.floor(outH * 0.03);
+
+        ctx.fillStyle = "rgba(10, 10, 14, 0.85)";
+        if (typeof (ctx as any).roundRect === "function") {
+          (ctx as any).roundRect(boxX, boxY, boxW, boxH, 10);
+        } else {
+          ctx.rect(boxX, boxY, boxW, boxH);
+        }
+        ctx.fill();
+
+        ctx.strokeStyle = "rgba(0, 242, 254, 0.4)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = "#00f2fe";
+        ctx.fillText(watermarkTitle, boxX + pad, boxY + wmFontSize + 2);
+
+        ctx.font = `${Math.floor(wmFontSize * 0.55)}px sans-serif`;
+        ctx.fillStyle = "#a1a1aa";
+        ctx.fillText(watermarkSub, boxX + pad, boxY + wmFontSize * 1.8 + 2);
+        ctx.restore();
+      }
 
       frame++;
       setExportProgress(Math.floor((frame / totalFrames) * 100));
@@ -700,7 +851,8 @@ export default function MarNostocEditor() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#08080a] select-none text-white overflow-hidden">
+    <div className="flex flex-col h-screen w-screen bg-[#08080a] select-none text-white overflow-hidden font-sans">
+      {/* --- TOP HEADER NAVIGATION --- */}
       <header className="h-14 border-b border-[#1c1c24] bg-[#0d0d12] px-4 flex items-center justify-between z-30">
         <div className="flex items-center space-x-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-tr from-[#00f2fe] to-[#4facfe] font-black text-black text-sm tracking-wider shadow-lg shadow-cyan-500/20">
@@ -709,12 +861,35 @@ export default function MarNostocEditor() {
           <span className="font-extrabold tracking-tight text-lg bg-gradient-to-r from-white via-cyan-100 to-cyan-400 bg-clip-text text-transparent">
             Mar Nostoc editor
           </span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-700/50 text-cyan-300 font-semibold uppercase tracking-wider">
-            CapCut Pro Suite
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 border ${
+              currentUser?.isPro
+                ? "bg-amber-950/80 border-amber-500/50 text-amber-300"
+                : "bg-cyan-950/80 border-cyan-700/50 text-cyan-300"
+            }`}
+          >
+            {currentUser?.isPro ? (
+              <>
+                <Crown className="w-3 h-3 text-amber-400 fill-amber-400" /> PRO STUDIO
+              </>
+            ) : (
+              "FREE PLAN"
+            )}
           </span>
         </div>
 
+        {/* Global Controls & User Profile */}
         <div className="flex items-center space-x-3">
+          {!currentUser?.isPro && (
+            <button
+              onClick={() => setShowUpgradeModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-extrabold text-xs shadow-lg shadow-amber-500/20 hover:brightness-110 transition"
+            >
+              <Crown className="w-3.5 h-3.5 fill-black" />
+              Remove Watermark (Go Pro)
+            </button>
+          )}
+
           <button
             onClick={() => {
               setBrightness(100);
@@ -725,12 +900,40 @@ export default function MarNostocEditor() {
               setActiveFilter("none");
               setKeyframeZoom(false);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-[#1a1a24] rounded-md transition"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-[#1a1a24] rounded-md transition"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Reset
           </button>
 
+          {/* User Account Button */}
+          {currentUser ? (
+            <div className="flex items-center gap-2 pl-2 border-l border-[#242433]">
+              <div className="text-right hidden sm:block">
+                <span className="text-xs font-semibold block text-white truncate max-w-[120px]">
+                  {currentUser.email}
+                </span>
+                <span className="text-[10px] text-zinc-400 block">{currentUser.tier}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-1.5 rounded-lg bg-[#181822] hover:bg-red-950/40 text-zinc-400 hover:text-red-300 transition"
+                title="Log out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1a24] hover:bg-[#252533] text-zinc-200 text-xs font-semibold border border-[#2b2b3b] transition"
+            >
+              <UserIcon className="w-3.5 h-3.5 text-cyan-400" />
+              Sign In
+            </button>
+          )}
+
+          {/* 1080p Render Export */}
           <button
             onClick={handleExportVideo}
             disabled={isExporting}
@@ -743,7 +946,7 @@ export default function MarNostocEditor() {
             {isExporting ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                <span>Rendering ({exportProgress}%)</span>
+                <span>Exporting ({exportProgress}%)</span>
               </>
             ) : (
               <>
@@ -755,7 +958,9 @@ export default function MarNostocEditor() {
         </div>
       </header>
 
+      {/* --- MAIN WORKSPACE --- */}
       <div className="flex-1 flex overflow-hidden">
+        {/* LEFT TOOL BAR */}
         <nav className="w-16 border-r border-[#1a1a24] bg-[#0c0c11] flex flex-col items-center py-3 space-y-4 z-20">
           {[
             { id: "media", icon: Film, label: "Media" },
@@ -791,7 +996,9 @@ export default function MarNostocEditor() {
           })}
         </nav>
 
+        {/* DRAWER PANEL */}
         <aside className="w-80 border-r border-[#1c1c24] bg-[#121218] flex flex-col overflow-y-auto p-4 z-10">
+          {/* MEDIA DRAWER */}
           {activeTab === "media" && (
             <div className="flex flex-col space-y-4">
               <div className="flex items-center justify-between">
@@ -846,10 +1053,11 @@ export default function MarNostocEditor() {
             </div>
           )}
 
+          {/* AUDIO & SFX DRAWER */}
           {activeTab === "audio" && (
             <div className="flex flex-col space-y-4 text-xs">
               <div className="flex items-center justify-between">
-                <h3 className="font-bold text-sm text-zinc-100">Audio & Sound FX</h3>
+                <h3 className="font-bold text-sm text-zinc-100">Audio & SFX</h3>
                 <button
                   onClick={() => audioFileInputRef.current?.click()}
                   className="flex items-center gap-1 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-1 rounded"
@@ -901,9 +1109,9 @@ export default function MarNostocEditor() {
               </div>
 
               <div className="pt-4 border-t border-[#20202e] space-y-2">
-                <span className="font-semibold text-zinc-300">Added Sound Tracks</span>
+                <span className="font-semibold text-zinc-300">Active Audio Tracks</span>
                 {audioTracks.length === 0 ? (
-                  <span className="text-zinc-500 italic block">No audio tracks added yet.</span>
+                  <span className="text-zinc-500 italic block">No audio tracks added.</span>
                 ) : (
                   audioTracks.map((trk) => (
                     <div
@@ -927,6 +1135,7 @@ export default function MarNostocEditor() {
             </div>
           )}
 
+          {/* TEXT DRAWER */}
           {activeTab === "text" && (
             <div className="flex flex-col space-y-4 text-xs">
               <div className="flex items-center justify-between">
@@ -974,7 +1183,7 @@ export default function MarNostocEditor() {
                       </div>
 
                       <div>
-                        <label className="text-zinc-400 block mb-1">Animation Style</label>
+                        <label className="text-zinc-400 block mb-1">Animation</label>
                         <select
                           value={target.animation}
                           onChange={(e) =>
@@ -1059,9 +1268,10 @@ export default function MarNostocEditor() {
             </div>
           )}
 
+          {/* STICKERS DRAWER */}
           {activeTab === "stickers" && (
             <div className="flex flex-col space-y-4 text-xs">
-              <h3 className="font-bold text-sm text-zinc-100">Emoji & Sticker Badges</h3>
+              <h3 className="font-bold text-sm text-zinc-100">Emoji & Badges</h3>
               <div className="grid grid-cols-4 gap-2 text-2xl">
                 {["🔥", "⚡", "✨", "🎬", "🚀", "💯", "❤️", "💎"].map((em) => (
                   <button
@@ -1089,67 +1299,73 @@ export default function MarNostocEditor() {
             </div>
           )}
 
+          {/* EFFECTS & PAYWALLED FILTERS */}
           {activeTab === "effects" && (
             <div className="flex flex-col space-y-4 text-xs">
               <h3 className="font-bold text-sm text-zinc-100">Cinematic Filters (LUTs)</h3>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: "none", name: "Standard (None)" },
-                  { id: "cyberpunk", name: "Cyberpunk Glow" },
-                  { id: "vintage", name: "Vintage 1970s" },
-                  { id: "noir", name: "B&W Noir" },
-                  { id: "golden", name: "Golden Hour" },
-                  { id: "vhs", name: "VHS Glitch" },
+                  { id: "none", name: "Standard (Free)", pro: false },
+                  { id: "vintage", name: "Vintage 1970s", pro: false },
+                  { id: "golden", name: "Golden Hour", pro: false },
+                  { id: "noir", name: "B&W Noir", pro: false },
+                  { id: "cyberpunk", name: "Cyberpunk Glow", pro: true },
+                  { id: "vhs", name: "VHS Glitch", pro: true },
                 ].map((f) => (
                   <button
                     key={f.id}
-                    onClick={() => setActiveFilter(f.id as FilterPreset)}
-                    className={`p-3 rounded-lg border text-left font-medium transition ${
+                    onClick={() => {
+                      if (f.pro && !currentUser?.isPro) {
+                        setShowUpgradeModal(true);
+                      } else {
+                        setActiveFilter(f.id as FilterPreset);
+                      }
+                    }}
+                    className={`p-3 rounded-lg border text-left font-medium relative transition ${
                       activeFilter === f.id
                         ? "border-cyan-400 bg-cyan-950/40 text-cyan-300"
                         : "border-[#252538] bg-[#0c0c11] text-zinc-400 hover:text-white"
                     }`}
                   >
-                    {f.name}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold block truncate">{f.name}</span>
+                      {f.pro && !currentUser?.isPro && <Lock className="w-3 h-3 text-amber-400" />}
+                    </div>
                   </button>
                 ))}
               </div>
 
               <div className="pt-4 border-t border-[#20202e] space-y-3">
-                <span className="font-bold text-zinc-200">Keyframe Animation (Ken Burns)</span>
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-400">Dynamic Zoom-In</span>
+                  <span className="font-bold text-zinc-200 flex items-center gap-1.5">
+                    Ken Burns Dynamic Zoom
+                    {!currentUser?.isPro && (
+                      <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1 py-0.5 rounded border border-amber-500/30">
+                        PRO
+                      </span>
+                    )}
+                  </span>
                   <input
                     type="checkbox"
                     checked={keyframeZoom}
-                    onChange={(e) => setKeyframeZoom(e.target.checked)}
+                    onChange={(e) => {
+                      if (!currentUser?.isPro) {
+                        setShowUpgradeModal(true);
+                      } else {
+                        setKeyframeZoom(e.target.checked);
+                      }
+                    }}
                     className="w-4 h-4 accent-cyan-400 rounded"
                   />
                 </div>
-                {keyframeZoom && (
-                  <div>
-                    <div className="flex justify-between text-zinc-400 mb-1">
-                      <span>Max Zoom Factor</span>
-                      <span>{zoomScale.toFixed(2)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1.0"
-                      max="2.0"
-                      step="0.05"
-                      value={zoomScale}
-                      onChange={(e) => setZoomScale(Number(e.target.value))}
-                      className="w-full h-1 bg-zinc-800 rounded accent-cyan-400"
-                    />
-                  </div>
-                )}
               </div>
             </div>
           )}
 
+          {/* TRANSITIONS */}
           {activeTab === "transitions" && (
             <div className="flex flex-col space-y-4 text-xs">
-              <h3 className="font-bold text-sm text-zinc-100">Clip Cut Transitions</h3>
+              <h3 className="font-bold text-sm text-zinc-100">Cut Transitions</h3>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: "none", name: "Cut (None)" },
@@ -1169,23 +1385,34 @@ export default function MarNostocEditor() {
             </div>
           )}
 
+          {/* SPEED WITH PRO GATING */}
           {activeTab === "speed" && (
             <div className="flex flex-col space-y-4 text-xs">
-              <h3 className="font-bold text-sm text-zinc-100">Speed Control</h3>
+              <h3 className="font-bold text-sm text-zinc-100">Speed Control (Ramping)</h3>
               <div className="grid grid-cols-3 gap-2">
-                {[0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0].map((spd) => (
+                {[
+                  { spd: 0.25, pro: true },
+                  { spd: 0.5, pro: false },
+                  { spd: 0.75, pro: false },
+                  { spd: 1.0, pro: false },
+                  { spd: 1.5, pro: false },
+                  { spd: 2.0, pro: false },
+                  { spd: 4.0, pro: true },
+                ].map((item) => (
                   <button
-                    key={spd}
-                    onClick={() => handleSetSpeed(spd)}
-                    className="py-2.5 rounded-lg border border-[#252538] bg-[#0c0c11] hover:border-cyan-400 font-bold transition"
+                    key={item.spd}
+                    onClick={() => handleSetSpeed(item.spd)}
+                    className="py-2.5 rounded-lg border border-[#252538] bg-[#0c0c11] hover:border-cyan-400 font-bold flex items-center justify-center gap-1 transition"
                   >
-                    {spd}x
+                    <span>{item.spd}x</span>
+                    {item.pro && !currentUser?.isPro && <Lock className="w-2.5 h-2.5 text-amber-400" />}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
+          {/* ADJUSTMENTS */}
           {activeTab === "adjust" && (
             <div className="flex flex-col space-y-4 text-xs">
               <h3 className="font-bold text-sm text-zinc-100">Color Grading</h3>
@@ -1216,6 +1443,7 @@ export default function MarNostocEditor() {
             </div>
           )}
 
+          {/* RATIO & CROP */}
           {activeTab === "crop" && (
             <div className="flex flex-col space-y-4 text-xs">
               <h3 className="font-bold text-sm text-zinc-100">Canvas Ratio & Crop</h3>
@@ -1239,42 +1467,11 @@ export default function MarNostocEditor() {
                   </button>
                 ))}
               </div>
-
-              <div className="pt-4 border-t border-[#20202e] space-y-3">
-                <span className="font-semibold text-zinc-300">Spatial Crop Box (%)</span>
-                <div>
-                  <div className="flex justify-between text-zinc-400 mb-1">
-                    <span>Width</span>
-                    <span>{cropBox.width}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="30"
-                    max="100"
-                    value={cropBox.width}
-                    onChange={(e) => setCropBox((p) => ({ ...p, width: Number(e.target.value) }))}
-                    className="w-full h-1 bg-zinc-800 rounded accent-cyan-400"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between text-zinc-400 mb-1">
-                    <span>Height</span>
-                    <span>{cropBox.height}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="30"
-                    max="100"
-                    value={cropBox.height}
-                    onChange={(e) => setCropBox((p) => ({ ...p, height: Number(e.target.value) }))}
-                    className="w-full h-1 bg-zinc-800 rounded accent-cyan-400"
-                  />
-                </div>
-              </div>
             </div>
           )}
         </aside>
 
+        {/* CENTER PREVIEW PLAYER WITH LIVE WATERMARK */}
         <section
           className="flex-1 bg-[#060608] flex flex-col items-center justify-center relative overflow-hidden select-none"
           onPointerMove={handlePreviewPointerMove}
@@ -1308,6 +1505,23 @@ export default function MarNostocEditor() {
               }}
             />
 
+            {/* LIVE PREVIEW WATERMARK PILL FOR FREE USERS */}
+            {!currentUser?.isPro && (
+              <div
+                onClick={() => setShowUpgradeModal(true)}
+                className="absolute bottom-3 right-3 bg-black/80 backdrop-blur-md border border-cyan-400/40 rounded-lg px-2.5 py-1 flex items-center gap-2 cursor-pointer hover:border-amber-400 transition group shadow-2xl"
+              >
+                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-black tracking-wider text-cyan-300 group-hover:text-amber-300">
+                    MAR NOSTOC EDITOR
+                  </span>
+                  <span className="text-[8px] text-zinc-400">Click to remove watermark</span>
+                </div>
+              </div>
+            )}
+
+            {/* Draggable Stickers */}
             {stickers.map((stk) => {
               const isVisible = currentTime >= stk.startTime && currentTime <= stk.endTime;
               if (!isVisible) return null;
@@ -1328,6 +1542,7 @@ export default function MarNostocEditor() {
               );
             })}
 
+            {/* Draggable Text Overlays */}
             {textList.map((txt) => {
               const isVisible = currentTime >= txt.startTime && currentTime <= txt.endTime;
               if (!isVisible) return null;
@@ -1383,6 +1598,7 @@ export default function MarNostocEditor() {
         </section>
       </div>
 
+      {/* --- BOTTOM MULTI-TRACK TIMELINE --- */}
       <footer className="h-64 border-t border-[#1a1a24] bg-[#0c0c11] flex flex-col z-20">
         <div className="h-10 border-b border-[#181822] px-4 flex items-center justify-between text-xs text-zinc-400">
           <div className="flex items-center space-x-2">
@@ -1391,7 +1607,7 @@ export default function MarNostocEditor() {
               className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#181822] hover:bg-[#252538] text-white transition font-medium"
             >
               <Scissors className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Split (Cut)</span>
+              <span>Split</span>
             </button>
             <button
               onClick={handleDuplicateSegment}
@@ -1440,6 +1656,7 @@ export default function MarNostocEditor() {
             <div className="w-3 h-3 bg-cyan-400 rotate-45 -translate-x-[5px] -translate-y-1 shadow-lg shadow-cyan-400/50" />
           </div>
 
+          {/* TRACK 1: Video Track */}
           <div className="relative h-12 bg-[#121218] rounded-md border border-[#20202e] flex overflow-hidden">
             {segments.map((seg) => {
               const segDur = seg.end - seg.start;
@@ -1461,6 +1678,7 @@ export default function MarNostocEditor() {
             })}
           </div>
 
+          {/* TRACK 2: Text Track */}
           <div className="relative h-7 bg-[#0e0e14] rounded-md border border-[#1b1b26] overflow-hidden">
             {textList.map((txt) => {
               const l = (txt.startTime / (duration || 1)) * 100;
@@ -1485,6 +1703,7 @@ export default function MarNostocEditor() {
             })}
           </div>
 
+          {/* TRACK 3: Audio Track */}
           <div className="relative h-7 bg-[#0e0e14] rounded-md border border-[#1b1b26] overflow-hidden">
             {audioTracks.map((trk) => {
               const l = (trk.startTime / (duration || 1)) * 100;
@@ -1502,6 +1721,180 @@ export default function MarNostocEditor() {
           </div>
         </div>
       </footer>
+
+      {/* --- AUTHENTICATION MODAL (EMAIL LOGIN / SIGNUP) --- */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#121218] border border-[#2b2b3b] rounded-2xl w-full max-w-md p-6 relative shadow-2xl">
+            <button
+              onClick={() => setShowAuthModal(false)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#00f2fe] to-[#4facfe] flex items-center justify-center text-black font-black">
+                MN
+              </div>
+              <div>
+                <h3 className="font-extrabold text-lg text-white">
+                  {authMode === "signup" ? "Create Creator Account" : "Welcome Back"}
+                </h3>
+                <span className="text-xs text-zinc-400">Mar Nostoc Studio Cloud</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs text-zinc-300 font-semibold block mb-1">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="you@creator.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="w-full bg-[#0c0c11] border border-[#272738] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-300 font-semibold block mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  className="w-full bg-[#0c0c11] border border-[#272738] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-[#00f2fe] to-[#4facfe] text-black font-extrabold py-2.5 rounded-lg text-sm hover:brightness-110 shadow-lg shadow-cyan-500/20 transition"
+              >
+                {authMode === "signup" ? "Get Started (Free)" : "Sign In to Studio"}
+              </button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode((m) => (m === "signup" ? "login" : "signup"))}
+                  className="text-xs text-cyan-400 hover:underline"
+                >
+                  {authMode === "signup"
+                    ? "Already have an account? Sign In"
+                    : "Need an account? Sign Up Free"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- PAYWALL & CHECKOUT MODAL (WATERMARK REMOVAL) --- */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#101015] border border-[#2e2e42] rounded-3xl w-full max-w-2xl p-6 sm:p-8 relative shadow-2xl overflow-hidden">
+            <button
+              onClick={() => setShowUpgradeModal(false)}
+              className="absolute top-5 right-5 text-zinc-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center max-w-md mx-auto mb-6">
+              <span className="text-[11px] font-black uppercase tracking-widest text-amber-400 bg-amber-950/80 border border-amber-600/40 px-3 py-1 rounded-full inline-block mb-2">
+                👑 Mar Nostoc Pro Upgrade
+              </span>
+              <h2 className="text-2xl font-black text-white">Unlock Studio Video Export</h2>
+              <p className="text-xs text-zinc-400 mt-1">
+                Remove the watermark permanently and access all professional cinematic tools.
+              </p>
+            </div>
+
+            {/* Plan Comparison */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              {/* Monthly Subscription */}
+              <div className="border border-[#28283a] bg-[#0c0c11] rounded-2xl p-5 flex flex-col justify-between hover:border-cyan-400 transition">
+                <div>
+                  <h4 className="font-extrabold text-white text-base">Creator Monthly</h4>
+                  <div className="flex items-baseline gap-1 my-2">
+                    <span className="text-3xl font-black text-cyan-400">$9.99</span>
+                    <span className="text-xs text-zinc-400">/month</span>
+                  </div>
+                  <ul className="text-xs text-zinc-300 space-y-2 mt-4">
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <strong>Remove Export Watermark</strong>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                      Unlock VHS Glitch & Cyberpunk LUTs
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                      Dynamic Ken Burns Keyframes
+                    </li>
+                  </ul>
+                </div>
+                <button
+                  disabled={isProcessingPayment}
+                  onClick={() => handleUpgradeToPro("Pro Monthly")}
+                  className="mt-6 w-full bg-[#1c1c28] hover:bg-cyan-500 hover:text-black text-white font-bold py-2.5 rounded-xl text-xs transition border border-[#2f2f45]"
+                >
+                  {isProcessingPayment ? "Activating..." : "Select Monthly ($9.99)"}
+                </button>
+              </div>
+
+              {/* Lifetime Pass (Best Value) */}
+              <div className="border-2 border-amber-500/80 bg-gradient-to-b from-[#181512] to-[#0d0c0a] rounded-2xl p-5 flex flex-col justify-between relative shadow-xl shadow-amber-500/10">
+                <div className="absolute top-3 right-3 bg-amber-500 text-black text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                  Best Value
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-amber-300 text-base">Lifetime Pass</h4>
+                  <div className="flex items-baseline gap-1 my-2">
+                    <span className="text-3xl font-black text-amber-400">$49</span>
+                    <span className="text-xs text-zinc-400">one-time payment</span>
+                  </div>
+                  <ul className="text-xs text-zinc-200 space-y-2 mt-4">
+                    <li className="flex items-center gap-2">
+                      <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+                      <strong>Watermark Removed Forever</strong>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                      All Future LUTs & Effects Included
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                      Priority 4K Canvas Rendering
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                      Commercial Monetization Rights
+                    </li>
+                  </ul>
+                </div>
+                <button
+                  disabled={isProcessingPayment}
+                  onClick={() => handleUpgradeToPro("Pro Lifetime")}
+                  className="mt-6 w-full bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-black py-2.5 rounded-xl text-xs hover:brightness-110 shadow-lg shadow-amber-500/20 transition"
+                >
+                  {isProcessingPayment ? "Activating Lifetime..." : "Get Lifetime ($49)"}
+                </button>
+              </div>
+            </div>
+
+            <div className="text-center text-[10px] text-zinc-500 flex items-center justify-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Instant client-side activation • Works on Android 10+ and Desktop</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
