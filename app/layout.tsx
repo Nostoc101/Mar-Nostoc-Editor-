@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Mar Nostoc Editor - Pro Studio",
-  description: "Next-Generation Client-Side Video Suite with VFX, Keyframes, Audio Synthesis, and Transitions",
+  title: "MarNostocEditor - Cyberpunk Reels Studio",
+  description: "Next-Gen 60FPS Client-Side Video Editing Engine",
 };
 
 export const viewport: Viewport = {
@@ -20,7 +20,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="antialiased min-h-screen bg-[#08080a] text-white">
+      <head>
+        {/* Futuristic Cyberpunk & Luxury Fonts for MarNostoc Engine */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;900&family=Orbitron:wght@600;800;900&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="antialiased min-h-screen bg-[#0B0F19] text-white">
         {children}
       </body>
     </html>
